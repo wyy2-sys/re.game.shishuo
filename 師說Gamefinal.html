@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>葬送的韓愈：師說討伐戰</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #5d4a66;
+            --accent: #a78bfa;
+            --hp-player: #2ecc71;
+            --hp-boss: #e74c3c;
+            --fantasy-bg: #1a1a2e;
+        }
+        body {
+            font-family: 'Noto Serif TC', serif;
+            background-color: var(--fantasy-bg);
+            color: #e0e0e0;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #game-window {
+            background: linear-gradient(135deg, #16213e 0%, #0f3460 100%);
+            width: 95%;
+            max-width: 800px;
+            height: 600px;
+            border: 3px solid var(--accent);
+            border-radius: 15px;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
+        }
+        /* UI 頂欄 */
+        #battle-ui {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            background: rgba(0,0,0,0.4);
+            z-index: 10;
+        }
+        .hp-bar-container { width: 45%; }
+        .hp-label { font-size: 0.9em; margin-bottom: 5px; display: flex; justify-content: space-between; }
+        .hp-outer { background: #333; height: 12px; border-radius: 6px; border: 1px solid #555; }
+        .hp-inner { height: 100%; transition: width 0.3s; border-radius: 6px; }
+        #player-hp-inner { background: var(--hp-player); box-shadow: 0 0 10px var(--hp-player); }
+        #boss-hp-inner { background: var(--hp-boss); box-shadow: 0 0 10px var(--hp-boss); }
+
+        /* 內容區 */
+        #screen { flex: 1; padding: 20px; text-align: center; display: flex; flex-direction: column; justify-content: center; align-items: center; position: relative; }
+        
+        /* 角色選擇卡片 */
+        .char-card {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid var(--accent);
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px;
+            cursor: pointer;
+            width: 200px;
+            transition: transform 0.2s, background 0.3s;
+        }
+        .char-card:hover { transform: translateY(-5px); background: rgba(255,255,255,0.2); }
+        .char-grid { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+        /* 戰鬥互動 */
+        #timer-bar { position: absolute; top: 0; left: 0; height: 5px; background: #f1c40f; width: 100%; transition: width 0.1s linear; z-index: 15; }
+        .dialogue-box { background: rgba(0,0,0,0.6); padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid var(--accent); width: 80%; }
+        .question-text { font-size: 1.2em; margin-bottom: 20px; min-height: 60px; }
+        .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
+        
+        button {
+            background: #16213e;
+            color: white;
+            border: 1px solid var(--accent);
+            padding: 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.2s;
+        }
+        button:hover { background: var(--accent); color: #1a1a2e; }
+
+        /* 特效與動畫 */
+        .damage-pop { position: absolute; color: #e74c3c; font-weight: bold; font-size: 2em; animation: floatUp 0.8s forwards; pointer-events: none; }
+        .crit-text { color: #f1c40f; text-shadow: 0 0 10px orange; }
+        @keyframes floatUp { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-50px); } }
+        .shake { animation: shake 0.4s; }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-10px); } 75% { transform: translateX(10px); } }
+
+        /* 遠征動畫 */
+        #journey-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #0a0a12; display: none; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 100;
+        }
+        .journey-path {
+            width: 80%; height: 100px; border-bottom: 2px solid #333;
+            position: relative; overflow: hidden;
+        }
+        .castle { position: absolute; right: 20px; bottom: 0; font-size: 60px; }
+        .party {
+            position: absolute; left: -100px; bottom: 10px; font-size: 40px;
+            animation: march 5s linear forwards;
+        }
+        @keyframes march {
+            0% { left: -10%; opacity: 1; }
+            100% { left: 70%; opacity: 1; }
+        }
+        .journey-msg { margin-top: 20px; font-style: italic; color: var(--accent); font-size: 1.5em; }
+    </style>
+</head>
+<body>
+
+<div id="game-window">
+    <div id="timer-bar"></div>
+    
+    <div id="journey-overlay">
+        <div class="journey-msg">實力大增！隊伍正急速向魔王城推進...</div>
+        <div class="journey-path">
+            <div class="castle">🏰</div>
+            <div class="party">🧝‍♀️🧙‍♀️⚔️</div>
+        </div>
+    </div>
+
+    <div id="battle-ui" style="display: none;">
+        <div class="hp-bar-container">
+            <div class="hp-label"><span id="player-name">勇者</span> <span id="player-hp-text">100/100</span></div>
+            <div class="hp-outer"><div id="player-hp-inner" class="hp-inner" style="width: 100%;"></div></div>
+        </div>
+        <div class="hp-bar-container">
+            <div class="hp-label">魔王 <span id="boss-hp-text">1000/1000</span></div>
+            <div class="hp-outer"><div id="boss-hp-inner" class="hp-inner" style="width: 100%;"></div></div>
+        </div>
+    </div>
+
+    <div id="screen"></div>
+</div>
+
+<script>
+    const CHARACTERS = {
+        meiling: { id: 'meiling', name: "美玲精靈", hp: 100, maxHp: 100, time: 6, skill: "暴擊：每5題10倍傷", lives: 0 },
+        enyun: { id: 'enyun', name: "恩韵魔法使", hp: 100, maxHp: 100, time: 6, skill: "加壓：雙倍傷/雙倍扣血", lives: 0 },
+        mingze: { id: 'mingze', name: "銘澤戰士", hp: 200, maxHp: 200, time: 4, skill: "不屈：2次復活/厚血", lives: 2 }
+    };
+
+    const STAGES = [
+        { name: "第一階段：記憶之森 (名句背誦)", questions: [
+            { q: "「師者，所以（　）、（　）、（　）也。」", options: ["傳道、授業、解疑", "傳道、受業、解惑", "說道、受業、解惑", "傳道、守業、解困"], correct: 1 },
+            { q: "「人非（　），孰能無惑？」", options: ["生而知之者", "天生聰穎者", "先天有才者", "聖賢之人者"], correct: 0 },
+            { q: "「惑而不從師，（　），終不解矣。」", options: ["其為惑也", "其所惑者", "而後知之", "此之謂惑"], correct: 0 },
+            { q: "「吾師道也，（　）？」", options: ["豈知其年之先後生於吾乎", "何必知其年之先後生於吾乎", "夫庸知其年之先後生於吾乎", "焉知其年之先後生於吾乎"], correct: 2 },
+            { q: "「是故無貴無賤，無長無少，（　），（　）。」", options: ["師之所存，道之所存也", "道之所存，師之所存也", "學之所向，道之所往也", "德之所及，師之所在也"], correct: 1 },
+            { q: "「嗟乎！（　）！欲人之無惑也難矣！」", options: ["師道之不存也久矣", "師道之不復也久矣", "師道之不傳也久矣", "師道之衰落也久矣"], correct: 2 },
+            { q: "「古之聖人，其出人也遠矣，（　）。」", options: ["猶且從師而問焉", "尚且從師而學焉", "亦且隨師而教焉", "固且從師而聽焉"], correct: 0 },
+            { q: "「是故（　），（　）。」", options: ["聖愈聖，愚愈愚", "聖益聖，愚益愚", "聖更聖，愚愈愚", "聖越聖，愚越愚"], correct: 1 },
+            { q: "「聖人之所以為聖，愚人之所以為愚，（　）？」", options: ["其皆源於此乎", "其皆出於此乎", "豈皆由乎此乎", "或皆歸於此乎"], correct: 1 },
+            { q: "「愛其子，擇師而教之；（　），（　），惑矣。」", options: ["於其自身，則恥師焉", "至於其身，則避師焉", "於其身也，則恥師焉", "及其身也，則愧師焉"], correct: 2 },
+            { q: "「彼童子之師，（　），非吾所謂傳其道、解其惑者也。」", options: ["教之書而習其句讀者", "授之書而習其句讀者", "遺之書而誦其句讀者", "傳之書而解其句讀者"], correct: 1 },
+            { q: "「句讀之不知，惑之不解，（　），（　）。」", options: ["或師焉，或否焉", "或學焉，或不焉", "或師焉，或不焉", "或問焉，或止焉"], correct: 2 },
+            { q: "「（　），吾未見其明也。」", options: ["取小而捨大", "棄大而求小", "小學而大遺", "小道而大失"], correct: 2 },
+            { q: "「巫、醫、樂師、百工之人，（　）。」", options: ["不羞相師", "不恥相師", "互為相師", "樂於相師"], correct: 1 },
+            { q: "「位卑則足羞，（　）。」", options: ["位高則近媚", "官盛則近諛", "官顯則近諂", "職重則近附"], correct: 1 },
+            { q: "「嗚呼！（　），可知矣。」", options: ["師道之不傳", "師道之不復", "師道之不在", "師道之已喪"], correct: 1 },
+            { q: "「今其智（　），其可怪也歟！」", options: ["乃反不能及", "竟反不能及", "卻反不能及", "終反不能及"], correct: 0 },
+            { q: "「聖人無常師。孔子師（　）、（　）、（　）、（　）。」", options: ["郯子、萇弘、師襄、老聃", "郯子、項橐、子路、老聃", "郯子、伯牙、師襄、老子", "郯子、項橐、孟子、老子"], correct: 0 },
+            { q: "「是故弟子（　），師（　）。」", options: ["不一定不如師 / 不一定賢於弟子", "不必不如師 / 不必賢於弟子", "不定不如師 / 不定賢於弟子", "不常不如師 / 不常賢於弟子"], correct: 1 },
+            { q: "「（　），（　），如是而已。」", options: ["知道有先後，術業有專長", "聞道有先後，學業有專長", "聞道有早晚，術業有不同", "聞道有先後，術業有專攻"], correct: 3 }
+        ]},
+        { name: "第二階段：擇師的準則", questions: [
+            { q: "「生乎吾前」中的「乎」字意思為何？", options: ["呢（語氣詞）", "於 / 在", "比", "嗎（疑問詞）"], correct: 1 },
+            { q: "「其聞道也固先乎吾」中的「固」字語譯為：", options: ["固執", "堅固", "本來", "固然"], correct: 2 },
+            { q: "「吾從而師之」中的「師」字用法屬於：", options: ["名詞用作動詞", "意動用法（以……為師）", "使動用法", "複指用法"], correct: 1 },
+            { q: "「夫庸知其年之先後生於吾乎」中的「庸」字意指：", options: ["平庸", "難道 / 豈", "佣金", "經常"], correct: 1 },
+            { q: "「是故無貴無賤」中「是故」的意思是：", options: ["這是故事", "於是", "即使", "因此"], correct: 3 },
+            { q: "「無長無少」中的「無」字應解釋為：", options: ["沒有", "無論 / 不論", "不要", "不需"], correct: 1 },
+            { q: "「道之所存，師之所存也」表達了什麼觀點？", options: ["老師必須住在有道之地", "擇師的準則在於對方是否有「道」", "老師應該保存道理", "道理與老師分開存在"], correct: 1 },
+            { q: "韓愈認為擇師時，對方的年紀：", options: ["必須比自己大", "必須比自己小", "不是考慮的問題", "應與自己相若"], correct: 2 },
+            { q: "本段提到的「道」主要指什麼？", options: ["自然規律", "儒家道理", "道家學說", "法律條文"], correct: 1 },
+            { q: "第二段在全文結構中主要起到什麼作用？", options: ["交代寫作背景", "確立擇師的準則", "批評當時士大夫", "總結全篇要旨"], correct: 1 }
+        ]},
+        { name: "第三階段：聖人與眾人", questions: [
+            { q: "「師道之不傳也久矣」中「師道」指：", options: ["老師的生計", "老師的人數", "從師學習道理的風氣", "老師的薪酬"], correct: 2 },
+            { q: "「古之聖人，其出人也遠矣」中「出人」的意思是：", options: ["出生的人數", "超出一般人", "離開人群", "指點他人"], correct: 1 },
+            { q: "「猶且從師而問焉」中的「猶且」語譯為：", options: ["猶豫", "尚且", "即使", "況且"], correct: 1 },
+            { q: "「其下聖人也亦遠矣」中的「下」字意思為：", options: ["下面", "低於 / 及不上", "降下", "屬下"], correct: 1 },
+            { q: "「而恥學於師」中的「恥」字屬於：", options: ["名詞", "意動用法（以……為恥）", "使動用法", "虛詞"], correct: 1 },
+            { q: "「聖益聖，愚益愚」中「益」字解作：", options: ["利益", "更加", "益處", "輔助"], correct: 1 },
+            { q: "「聖人之所以為聖」中的「所以」語譯為：", options: ["因此", "用來……的工具", "……的原因", "雖然"], correct: 2 },
+            { q: "「其皆出於此乎」中的「其」字表示：", options: ["代詞（他）", "揣測語氣（大概）", "反問語氣", "強調語氣"], correct: 1 },
+            { q: "韓愈在第三段運用了哪種主要的論證方法？", options: ["舉例論證", "類比論證", "對比論證", "比喻論證"], correct: 2 },
+            { q: "作者認為「愚益愚」的原因是：", options: ["天生資質平庸", "聖人不願教導", "恥於從師學習", "社會風氣使然"], correct: 2 }
+        ]},
+        { name: "第四階段：愛子與自學", questions: [
+            { q: "「愛其子，擇師而教之」中的「其」指代：", options: ["韓愈", "孩子", "一般人（家長）", "李蟠"], correct: 2 },
+            { q: "「於其身也則恥師焉」中的「身」字語譯為：", options: ["身體", "自己", "身份", "身家"], correct: 1 },
+            { q: "「惑矣」中的「惑」字在這裡的意思是：", options: ["疑惑", "誘惑", "糊塗 / 奇怪", "迷路"], correct: 2 },
+            { q: "「彼童子之師」中的「彼」字語譯為：", options: ["他的", "那些", "彼此", "對方"], correct: 1 },
+            { q: "「習其句讀」中「句讀」是指：", options: ["讀書的方法", "文句的斷句和停頓", "詞語的解釋", "句子的結構"], correct: 1 },
+            { q: "韓愈認為「童子之師」的職責主要是：", options: ["傳授儒家大道", "解決人生疑難", "教授基本讀書斷句", "培養高尚品德"], correct: 2 },
+            { q: "「或師焉，或不焉」中的「不」字讀音及意思同：", options: ["bù（不願意）", "fǒu（否，即不請教老師）", "fú（不准）", "pǐ（壞）"], correct: 1 },
+            { q: "「小學而大遺」中的「小」指什麼？", options: ["小學教育", "年紀小的人", "學習句讀等小事", "官職卑微"], correct: 2 },
+            { q: "「吾未見其明也」表達了作者什麼態度？", options: ["讚美", "諷刺 / 批評", "同情", "疑惑"], correct: 1 },
+            { q: "第四段對比「對子」與「對己」的不同態度，目的是批評：", options: ["父母不愛孩子", "老師教學不力", "社會重視技能", "時人捨大取小、矛盾可笑的行為"], correct: 3 }
+        ]},
+        { name: "第五階段：巫醫與士大夫", questions: [
+            { q: "「巫、醫、樂師、百工之人」代表了什麼？", options: ["地位卑微的勞動階層", "最有學問的人", "韓愈的學生", "皇親國戚"], correct: 0 },
+            { q: "「不恥相師」的意思是：", options: ["不以互相學習為恥", "不會互相成為老師", "不感到羞恥地向老師請教", "恥於互相模仿"], correct: 0 },
+            { q: "「士大夫之族」中的「族」字語譯為：", options: ["家族", "民族", "類 / 一類人", "族長"], correct: 2 },
+            { q: "士大夫「群聚而笑之」反映了什麼現象？", options: ["他們感情很好", "當時恥於從師的社會風氣嚴重", "他們在討論學問", "老師講課很有趣"], correct: 1 },
+            { q: "士大夫拒絕從師的藉口「道相似也」指：", options: ["道路很相似", "道德水平一樣", "學問造詣接近", "老師的教法雷同"], correct: 2 },
+            { q: "「位卑則足羞，官盛則近諛」中的「諛」解作：", options: ["愉快", "諂媚", "議論", "誠實"], correct: 1 },
+            { q: "「君子不齒」中的「不齒」意思是：", options: ["沒有牙齒", "不願意說話", "不屑與之並列 / 看不起", "不敢觸碰"], correct: 2 },
+            { q: "「今其智乃反不能及」中的「乃」字語譯為：", options: ["於是", "反而", "竟然", "是"], correct: 2 },
+            { q: "韓愈在段末感嘆「其可怪也歟」，「歟」字的作用是：", options: ["表疑問", "表感嘆", "表肯定", "表揣測"], correct: 1 },
+            { q: "第五段的核心目的是抨擊士大夫哪種心態？", options: ["貪生怕死", "自命不凡但實際才智不及卑賤者", "勤奮好學", "團結一致"], correct: 1 }
+        ]},
+        { name: "第六階段：聖人孔子", questions: [
+            { q: "「聖人無常師」中的「常」字語譯為：", options: ["經常", "固定", "平凡", "長久"], correct: 1 },
+            { q: "「孔子師郯子」中的「師」字解作：", options: ["老師", "跟從……學習", "模仿", "稱呼"], correct: 1 },
+            { q: "「郯子之徒」中的「徒」字語譯為：", options: ["徒弟", "這些人 / 一類人", "徒勞", "步行"], correct: 1 },
+            { q: "「其賢不及孔子」中的「賢」字指：", options: ["賢德 / 才德", "賢妻", "嫌疑", "賢惠"], correct: 0 },
+            { q: "韓愈引用「三人行，則必有我師」的目的是論證：", options: ["出門旅行必須帶老師", "每個人都有值得學習的地方", "聖人學問高深", "孔子很謙虛"], correct: 1 },
+            { q: "「弟子不必不如師」中的「不必」語譯為：", options: ["不需要", "不一定", "不必要", "絕對不"], correct: 1 },
+            { q: "「術業有專攻」中的「專攻」意思為：", options: ["專門攻打", "專門的研究與長處", "業餘愛好", "隨便學習"], correct: 1 },
+            { q: "「聞道有先後」這句話呼應了文中哪一部分？", options: ["李蟠喜愛古文", "擇師的準則", "批評士大夫", "老師的職責"], correct: 1 },
+            { q: "文中提到孔子學習禮、樂、琴、官名，是為了說明：", options: ["孔子博學多才", "孔子不恥下問，以道為師", "孔子沒有專長", "孔子喜歡換老師"], correct: 1 },
+            { q: "第六段在論證上的層次屬於：", options: ["反面論述", "正面論述", "結尾總結", "引用論證的失敗案例"], correct: 1 }
+        ]},
+        { name: "終極階段：魔王城與李蟠", questions: [
+            { q: "「好古文」中的「好」字讀音及意思：", options: ["hǎo（良好）", "hào（喜愛）", "hǎo（完成）", "hào（好處）"], correct: 1 },
+            { q: "「六藝經傳」中的「傳」字語譯為：", options: ["傳遞", "解釋經文的書籍", "傳奇故事", "傳統"], correct: 1 },
+            { q: "「皆通習之」中的「通」字意思是：", options: ["通道", "全部 / 通曉", "通訊", "通常"], correct: 1 },
+            { q: "「不拘於時」中的「時」是指：", options: ["時間", "時機", "當時恥於從師的時俗風氣", "時節"], correct: 2 },
+            { q: "「學於余」中的「於」字用法為：", options: ["在", "向", "被", "給"], correct: 1 },
+            { q: "「余嘉其能行古道」中的「嘉」字語譯為：", options: ["嘉獎", "讚許", "增加", "賓客"], correct: 1 },
+            { q: "文中「能行古道」的具體行為是指：", options: ["穿古代衣服", "走古代的道路", "遵行古人從師學習的道理", "練習古文書法"], correct: 2 },
+            { q: "「作《師說》以貽之」中的「貽」字語譯為：", options: ["貽誤", "贈送", "留給", "貽笑"], correct: 1 },
+            { q: "韓愈寫這篇文章的直接動機是：", options: ["為了成名", "為了賺稿費", "勉勵弟子李蟠，並宣揚師道", "為了抗議朝廷"], correct: 2 },
+            { q: "李蟠年僅 17 歲卻「不拘於時」，韓愈以此對比出：", options: ["當時年輕人很有活力", "自己教導有方", "李蟠與當時士大夫恥於從師的陋習形成鮮明對照", "古文運動的艱難"], correct: 2 }
+        ]}
+    ];
+
+    let player = null;
+    let bossHp = 1000;
+    let currentStage = 0;
+    let combo = 0;
+    let totalCorrect = 0; 
+    let timerInterval = null;
+    let timeLeft = 0;
+    let currentQuestionTime = 0; // 當前題目的總時間限制
+    
+    // 儲存目前階段尚未答對的題目
+    let availableQuestions = [];
+    let currentQuestionIndex = -1;
+
+    const screenDiv = document.getElementById('screen');
+    const battleUi = document.getElementById('battle-ui');
+    const timerBar = document.getElementById('timer-bar');
+    const journeyOverlay = document.getElementById('journey-overlay');
+
+    // 遊戲開始：角色選擇
+    function initSelection() {
+        screenDiv.innerHTML = `
+            <h2>這是在葬送魔王之後的故事...</h2>
+            <p>請選擇您的討伐角色</p>
+            <div class="char-grid">
+                <div class="char-card" onclick="selectChar('meiling')">
+                    <h3>美玲精靈</h3>
+                    <p>❤️ 100 | ⏳ 6s</p>
+                    <small>${CHARACTERS.meiling.skill}</small>
+                </div>
+                <div class="char-card" onclick="selectChar('enyun')">
+                    <h3>恩韵魔法使</h3>
+                    <p>❤️ 100 | ⏳ 6s</p>
+                    <small>${CHARACTERS.enyun.skill}</small>
+                </div>
+                <div class="char-card" onclick="selectChar('mingze')">
+                    <h3>銘澤戰士</h3>
+                    <p>❤️ 200 | ⏳ 4s</p>
+                    <small>${CHARACTERS.mingze.skill}</small>
+                </div>
+            </div>
+        `;
+    }
+
+    function selectChar(id) {
+        player = JSON.parse(JSON.stringify(CHARACTERS[id]));
+        player.id = id;
+        currentStage = 0;
+        
+        // 載入第一階段的題庫池
+        availableQuestions = [...STAGES[currentStage].questions];
+        
+        battleUi.style.display = 'flex';
+        updateUi();
+        startStage();
+    }
+
+    function updateUi() {
+        document.getElementById('player-name').innerText = player.name + (player.lives > 0 ? ` (重生:${player.lives})` : "");
+        document.getElementById('player-hp-text').innerText = `${Math.ceil(player.hp)}/${player.maxHp}`;
+        document.getElementById('player-hp-inner').style.width = (player.hp / player.maxHp * 100) + "%";
+        
+        document.getElementById('boss-hp-text').innerText = `${bossHp}/1000`;
+        document.getElementById('boss-hp-inner').style.width = (bossHp / 1000 * 100) + "%";
+        
+        // 魔王殘血提醒
+        if (bossHp <= 100 && bossHp > 0) {
+            document.getElementById('boss-hp-text').style.color = "#ffeb3b";
+            document.getElementById('boss-hp-text').innerText += " (狂暴中：時間減半！)";
+        } else {
+            document.getElementById('boss-hp-text').style.color = "white";
+        }
+    }
+
+    function startStage() {
+        if (bossHp <= 0) return gameEnd(true);
+        if (player.hp <= 0) return handleDeath();
+
+        // 檢查目前階段題庫是否已空（全部答對）
+        if (availableQuestions.length === 0) {
+            currentStage++;
+            if (currentStage >= STAGES.length) {
+                return gameEnd(true); // 題庫全部答完，強制勝利
+            }
+            // 補充下一階段的題目
+            availableQuestions = [...STAGES[currentStage].questions];
+        }
+
+        const stageName = STAGES[currentStage].name;
+        // 從目前剩餘的題庫中隨機抽題
+        currentQuestionIndex = Math.floor(Math.random() * availableQuestions.length);
+        const qData = availableQuestions[currentQuestionIndex];
+
+        screenDiv.innerHTML = `
+            <div style="color: var(--accent); font-weight: bold; margin-bottom: 5px;">[ ${stageName} ] 剩餘題目: ${availableQuestions.length}</div>
+            <div class="dialogue-box">魔王：「《師說》的教誨，你還記得多少？」</div>
+            <div class="question-text">${qData.q}</div>
+            <div class="options-grid" id="options"></div>
+        `;
+
+        qData.options.forEach((opt, index) => {
+            const btn = document.createElement('button');
+            btn.innerText = opt;
+            btn.onclick = () => handleAnswer(index === qData.correct);
+            document.getElementById('options').appendChild(btn);
+        });
+
+        startTimer();
+    }
+
+    function startTimer() {
+        clearInterval(timerInterval);
+        
+        // 判斷是否觸發魔王殘血時間減半
+        let effectiveTime = player.time;
+        if (bossHp <= 100) {
+            effectiveTime = player.time / 2;
+        }
+        
+        currentQuestionTime = effectiveTime;
+        timeLeft = effectiveTime;
+        timerBar.style.width = "100%";
+        timerBar.style.background = (bossHp <= 100) ? "#e74c3c" : "#f1c40f"; // 殘血時計量條變紅
+        
+        timerInterval = setInterval(() => {
+            timeLeft -= 0.1;
+            timerBar.style.width = (timeLeft / currentQuestionTime * 100) + "%";
+            if (timeLeft <= 0) {
+                clearInterval(timerInterval);
+                handleAnswer(false); // 超時視為答錯
+            }
+        }, 100);
+    }
+
+    function handleAnswer(isCorrect) {
+        clearInterval(timerInterval);
+        let dmg = 13;
+        let isCrit = false;
+
+        if (isCorrect) {
+            // 答對了！將該題從題庫池中刪除，不會再重複出現
+            availableQuestions.splice(currentQuestionIndex, 1);
+            
+            combo++;
+            totalCorrect++;
+            
+            // 技能邏輯
+            if (player.id === 'meiling' && combo % 5 === 0) {
+                dmg *= 10;
+                isCrit = true;
+            }
+            if (player.id === 'enyun') dmg *= 2;
+
+            bossHp -= dmg;
+            if (bossHp < 0) bossHp = 0;
+            showPop(dmg, isCrit);
+            updateUi();
+
+            // 每答對 10 題觸發遠征動畫
+            if (totalCorrect > 0 && totalCorrect % 10 === 0) {
+                setTimeout(showJourney, 800); 
+                return;
+            }
+        } else {
+            // 答錯了，保留在題庫中，扣血並震動畫面
+            combo = 0;
+            let penalty = 20;
+            if (player.id === 'enyun') penalty *= 2;
+            player.hp -= penalty;
+            document.getElementById('game-window').classList.add('shake');
+            setTimeout(() => document.getElementById('game-window').classList.remove('shake'), 400);
+            updateUi();
+        }
+
+        if (bossHp <= 0) setTimeout(() => gameEnd(true), 800);
+        else if (player.hp <= 0) setTimeout(handleDeath, 800);
+        else {
+            setTimeout(startStage, 1000);
+        }
+    }
+
+    // 展示遠征動畫
+    function showJourney() {
+        journeyOverlay.style.display = 'flex';
+        setTimeout(() => {
+            journeyOverlay.style.display = 'none';
+            startStage();
+        }, 5000); // 5秒動畫
+    }
+
+    function showPop(val, crit) {
+        const pop = document.createElement('div');
+        pop.className = `damage-pop ${crit ? 'crit-text' : ''}`;
+        pop.innerText = crit ? `CRITICAL! -${val}` : `-${val}`;
+        screenDiv.appendChild(pop);
+        setTimeout(() => pop.remove(), 800);
+    }
+
+    function handleDeath() {
+        if (player.lives > 0) {
+            player.lives--;
+            player.hp = player.maxHp;
+            alert(`【技能：不屈】銘澤戰士重新站了起來！(剩餘復活：${player.lives})`);
+            updateUi();
+            startStage();
+        } else {
+            gameEnd(false);
+        }
+    }
+
+    function gameEnd(win) {
+        battleUi.style.display = 'none';
+        timerBar.style.width = "0%";
+        screenDiv.innerHTML = win ? `
+            <h1 style="color:#f1c40f">討伐成功</h1>
+            <p>你將韓愈的「師道」傳遞到了魔王城外。</p>
+            <p>這不是結束，而是下一個歷史的開始。</p>
+            <button onclick="location.reload()">重新啟程</button>
+        ` : `
+            <h1>你的旅程在此結束</h1>
+            <p>魔王冷笑道：「連《師說》都背不熟，還想挑戰我？」</p>
+            <button onclick="location.reload()">再次挑戰</button>
+        `;
+    }
+
+    initSelection();
+</script>
+
+</body>
+</html>
